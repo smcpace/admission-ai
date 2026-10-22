@@ -1256,7 +1256,7 @@ const DEMO = {
 
 $('btnConn').onclick = ()=>{ $('cUrl').value=CONN.url; $('cPass').value=CONN.pass; $('cMsg').innerHTML=''; show('mConn'); };
 $('cSave').onclick = async ()=>{
-  CONN = {url:$('cUrl').value.trim(), pass:$('cPass').value};
+  CONN = {url:$('cUrl').value.trim(), pass:$('cPass').value.normalize('NFKC').trim()};   // 全形字轉半形、去掉前後空白
   try{ localStorage.setItem(CFG_KEY, JSON.stringify(CONN)); }catch(e){}
   $('cMsg').innerHTML='<span class="sub">測試中…</span>';
   await checkHealth();
@@ -1264,7 +1264,7 @@ $('cSave').onclick = async ()=>{
   else $('cMsg').innerHTML=`<div class="err">${esc($('modeBadge').textContent)}</div>`;
 };
 $('cClear').onclick = ()=>{ try{ localStorage.removeItem(CFG_KEY); }catch(e){} CONN={url:'',pass:''}; $('cUrl').value=''; $('cPass').value=''; checkHealth(); };
-renderTabs(); renderPanel(); checkHealth().then(()=>{ if(!CONN.url || !CONN.pass) setTimeout(()=>$('btnConn').click(), 400); });
+renderTabs(); renderPanel(); checkHealth().then(()=>{ if(!LIVE && !$('mConn').classList.contains('show')) setTimeout(()=>{ $('btnConn').click(); if(CONN.url) $('cMsg').innerHTML=`<div class="err">${esc($('modeBadge').textContent)}</div>`; }, 400); });
 </script>
 </body>
 </html>
