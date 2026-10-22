@@ -117,6 +117,7 @@ table.lg th{background:#f0f2f4}
   <div class="title">護理入院評估 <span class="sub">（模擬介面・GitHub 版）</span> <span class="badge warn">僅限模擬病人</span> <span id="modeBadge" class="badge demo">檢查中…</span></div>
   <div class="btns">
     <button class="b ai" id="btnAI">🎙 AI 語音輔助</button>
+    <button class="b ai" id="btnRecordOpen" style="background:#fff;color:var(--purple)">📝 第一筆護理紀錄</button>
     <button class="b ai" id="btnImport" style="background:#fff;color:var(--purple)" title="匯入事先錄好的音檔（m4a、mp3、wav、webm）">📂 匯入音檔</button>
     <button class="b">✕ 取消</button><button class="b">暫存</button><button class="b">暫存並離開</button>
     <button class="b save" id="btnSave">儲存</button><button class="b">預覽</button>
@@ -177,6 +178,16 @@ table.lg th{background:#f0f2f4}
         <h4>AI 建議填入（可直接修改，不要的按「刪除」）</h4>
         <div id="missing"></div>
         <div id="items"></div>
+      </div>
+    </div>
+  </div>
+  <div class="mf"><button class="b" id="revCancel">放棄</button><button class="b save" id="revImport">確認匯入入院評估</button></div>
+</div></div>
+
+<!-- 第一筆入院護理紀錄 -->
+<div class="mask" id="mRecord"><div class="modal wide">
+  <div class="mh">📝 第一筆入院護理紀錄 <span class="sub">（依目前的入院評估＋錄音時的口述觀察組成）</span> <button class="x" data-close="mRecord">×</button></div>
+  <div class="mb">
         <div class="grp rec1"><div class="gt">第一筆入院護理紀錄（範本）</div>
           <div class="recset">
             <label>入院類型 <select id="rType"></select></label>
@@ -197,10 +208,8 @@ table.lg th{background:#f0f2f4}
           <div style="display:flex;justify-content:space-between;align-items:center;margin-top:4px;gap:8px;flex-wrap:wrap"><span id="rTodo"></span>
             <span><button class="b small" id="regenRec">依設定重新產生</button> <button class="b small" id="copyRec1">複製</button></span></div>
         </div>
-      </div>
-    </div>
   </div>
-  <div class="mf"><button class="b" id="revCancel">放棄</button><button class="b save" id="revImport">確認匯入入院評估</button></div>
+  <div class="mf"><button class="b" data-close="mRecord">稍後再說</button><button class="b save" id="recConfirm">確認紀錄</button></div>
 </div></div>
 
 <!-- 評分 -->
@@ -437,6 +446,7 @@ $('panel').addEventListener('input', e=>{ const f=FIELDS[e.target.name]; if(f&&[
 $('btnSave').onclick = ()=>{
   const miss = Object.values(FIELDS).filter(f=>f.req && isInput(f) && (f.parent ? false : (values[f.id]==null || (Array.isArray(values[f.id])&&!values[f.id].length))));
   toast(miss.length?`（模擬）尚有 ${miss.length} 個必填欄位未填：${miss.slice(0,5).map(f=>f.label).join('、')}${miss.length>5?'…':''}`:'（模擬）已儲存。這是測試介面，不會寫入 NIS。',5000);
+  if(S.pending) setTimeout(openRate, 900);
 };
 
 // ===== 後端連線 =====
@@ -966,7 +976,7 @@ function initRecordControls(){
   $('rIFixed').textContent = TPL['I固定處置'];
 }
 // 目前的欄位值：確認畫面上的 AI 建議（未刪除）優先，其次是評估表上已填的值
-function curVal(id){ const it=(typeof ITEMS!=='undefined'?ITEMS:[]).find(x=>x.id===id); if(it) return it.del?null:it.value; return values[id]??null; }
+function curVal(id){ if($('mRev').classList.contains('show')){ const it=(typeof ITEMS!=='undefined'?ITEMS:[]).find(x=>x.id===id); if(it) return it.del?null:it.value; } return values[id]??null; }
 // 從入院評估帶入的句子（依模組）
 function fromAssessment(){
   const out = [];
@@ -1045,8 +1055,9 @@ function refreshRecord(force){
 }
 function countTodo(){ const n=($('rec1').value.match(/【待填：/g)||[]).length; $('rTodo').innerHTML = n?`<span class="note">尚有 ${n} 處【待填】</span>`:'<span style="color:var(--green)">✔ 無待填項目</span>'; }
 function initRecord(ex){
-  RCD = {obs:(ex.record_obs||[]).map(o=>({...o,on:true})), act:ex.record_activity||null, dropped:ex.record_dropped||[], edited:false, ichk:{}, asmOff:{}};
-  if(!TPL){ $('rec1').value=''; return; }
+  RCD = {obs:(ex.record_obs||[]).map(o=>({...o,on:true})), act:ex.record_activity||null, dropped:ex.record_dropped||[], edited:false, ichk:{}, asmOff:{}, fresh:true};   // 新的一次錄音：保存 AI 擷取的口述觀察，評估完成後再組紀錄
+}
+function setRecordDefaults(){
   $('rType').value = TPL['預設入院類型'] || Object.keys(TPL['入院類型'])[0];
   $('rReport').value = localDT(new Date(S.started_at||Date.now())); $('rAdmit').value = '';
   $('rPlace').value = values.admit_place||''; $('rWay').value = values.admit_way||'';
@@ -1055,14 +1066,25 @@ function initRecord(ex){
   $('rName').value=''; $('rDate').value=''; $('rReason').checked=false;
   $('rTeam').value=''; $('rSafe').checked=true;
   $('rActWrap').style.display = RCD.act?'':'none'; if(RCD.act){ $('rAct').checked=true; $('rActTxt').textContent=RCD.act.text; }
-  refreshRecord(true);
-  S.rec1_ai = $('rec1').value;
 }
+function openRecord(){
+  if(!TPL){ toast('範本尚未載入'); return; }
+  if(!RCD || RCD.fresh===undefined){ RCD = {obs:[], act:null, dropped:[], edited:false, ichk:{}, asmOff:{}, fresh:true}; }
+  if(RCD.fresh){ setRecordDefaults(); RCD.fresh=false; RCD.edited=false; }
+  refreshRecord(); if(!S.rec1_ai) S.rec1_ai = $('rec1').value;
+  S.record_open = Date.now(); show('mRecord');
+}
+$('btnRecordOpen').onclick = openRecord;
+$('recConfirm').onclick = ()=>{
+  S.rec1_final = $('rec1').value;
+  hide('mRecord'); renderPanel();
+  toast('（模擬）第一筆入院護理紀錄已確認。', 3500);
+  if(S.pending) setTimeout(openRate, 700);
+};
 function toggleName(){ const tc=TPL&&TPL['入院類型'][$('rType').value]; const show=!!(tc&&tc['O結尾']);
   $('rNameWrap').style.display=show?'':'none'; $('rReasonWrap').style.display=show?'none':''; if(show) $('rNameLbl').textContent=tc['名稱欄位']; }
 document.addEventListener('change', e=>{
   const t=e.target; if(!t.closest) return;
-  if(t.closest('#items') && TPL && RCD){ refreshRecord(); return; }   // 評估欄位改了，帶入內容跟著更新
   if(!t.closest('.rec1')) return;
   if(t.dataset.o!==undefined) RCD.obs[+t.dataset.o].on=t.checked;
   if(t.dataset.asm!==undefined){ RCD.asmOff[t.dataset.asm]=!t.checked; }
@@ -1151,15 +1173,14 @@ $('revImport').onclick = ()=>{
   });
   S.review_seconds = Math.round((Date.now()-S.review_open)/1000);
   S.items = ITEMS.map(it=>{ const f=FIELDS[it.id]; return {id:it.id, tab:f.tab, label:f.parent?`${FIELDS[f.parent].label}－${f.label}`:f.label, ai_value:it.ai, final_value:it.del?null:it.value, status:it.del?'刪除':same(it.ai,it.value)?'採用':'修改', tier:it.tier, source:it.src||'', note:it.note||''}; });
-  S.transcript_ai = RESULT.tr.text; S.transcript_final = tsText; S.rec1_final = $('rec1').value;
+  S.transcript_ai = RESULT.tr.text; S.transcript_final = tsText; S.pending = true;
   S.record = {type:$('rType').value, with:getWith(), obs:RCD.obs.map(o=>({module:o.module,text:o.text,on:o.on,flag:o.flag||''})), from_assessment:mergedObs().asm.map(o=>o.text), dropped:RCD.dropped, activity:RCD.act, todo_left:($('rec1').value.match(/【待填：/g)||[]).length, edited:RCD.edited};
   if(!values.admit_place && $('rPlace').value) values.admit_place=$('rPlace').value;
   if(!values.admit_way && $('rWay').value) values.admit_way=$('rWay').value;
   hide('mRev');
   const first = SCHEMA.findIndex(t=>t.fields.some(f=>aiSet.has(f.id)||(f.sub&&aiSet.has(f.sub.id))||(f.items||[]).some(x=>aiSet.has(x.id))));
   if(first>=0) curTab=first; renderTabs(); renderPanel();
-  toast(`已匯入 ${n} 個欄位。黃色底＝AI 填入，請逐頁再確認後儲存。`,5000);
-  setTimeout(openRate, 600);
+  toast(`已匯入 ${n} 個欄位（黃色底＝AI 填入）。請補完其他評估欄位，再按上方「📝 第一筆護理紀錄」產生紀錄。`,7000);
 };
 
 // ===== 回饋與紀錄 =====
@@ -1171,7 +1192,8 @@ function openRate(){ Object.keys(RATE).forEach(k=>delete RATE[k]); document.quer
 async function saveLog(withRating){
   const rec = {...S, nurse_id:$('nurseId').value.trim()||null, ratings:withRating?{...RATE}:null, comment:withRating?$('comment').value.trim():'',
     first_nursing_record_ai:S.rec1_ai, first_nursing_record_final:S.rec1_final};
-  delete rec.review_open; delete rec.rec1_ai; delete rec.rec1_final;
+  delete rec.review_open; delete rec.record_open; delete rec.pending; delete rec.rec1_ai; delete rec.rec1_final;
+  S.pending = false;
   try{ localStorage.setItem('nurseId',$('nurseId').value.trim()); }catch(e){}
   if(LIVE){ try{ await gs('logSession', JSON.parse(JSON.stringify(rec))); }catch(e){ toast('紀錄儲存失敗：'+e.message); } }
   else { const it=(rec.items||[]).filter(i=>i.tier!=='ext'); DEMO_LOGS.push({saved_at:new Date().toLocaleString(), nurse_id:rec.nurse_id, record_seconds:rec.record_seconds, wait_after_stop_seconds:rec.wait_after_stop_seconds,
