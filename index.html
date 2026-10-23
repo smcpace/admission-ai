@@ -199,7 +199,7 @@ table.lg th{background:#f0f2f4}
             <span id="rReasonWrap"><label class="opt"><input type="checkbox" id="rReason">O 段帶入入院原因（此次發病經過）</label></span><span id="rNameWrap"><label><span id="rNameLbl">手術名稱</span> <input type="text" id="rName" placeholder="照 HIS 原樣貼上" style="width:250px"></label> <label>預定日期 <input type="date" id="rDate"></label></span>
           </div>
           <div class="rsec"><b>Ｏ 觀察（「口述」＝AI 從護理師口述擷取；「評估帶入」＝入院評估欄位。可修改或取消勾選）</b><div id="rObs"></div></div>
-          <div class="rsec"><b>Ｉ 處置</b><div class="sub" id="rIFixed" style="margin-bottom:4px"></div><div id="rI"></div></div>
+          <div class="rsec"><b>Ｉ 處置（「對話」＝AI 從對話擷取的衛教、交代事項與停藥情形）</b><div class="sub" id="rIFixed" style="margin-bottom:4px"></div><div id="rI"></div></div>
           <div class="rsec"><b>Ｅ 評值（通則）</b><div>
             <label>醫療團隊 <select id="rTeam"></select></label> <span class="sub">衛教對象依陪同者自動產生</span>
             <label class="opt"><input type="checkbox" id="rSafe" checked><span id="rSafeLbl">無跌倒損傷情形</span></label>
@@ -846,9 +846,9 @@ const RECORD_TEMPLATE = {
       "句子": "水腫情形存"
     }
   ],
-  "排泄_雙正常": "大小便可自解",
-  "排泄_小便正常": "小便可自解",
-  "排泄_大便正常": "大便可自解",
+  "排泄_雙正常": "",
+  "排泄_小便正常": "",
+  "排泄_大便正常": "",
   "模組": {
     "意識精神": {
       "名稱": "意識／精神",
@@ -967,6 +967,9 @@ function relDay(dateStr, baseDT){
   if(!dateStr) return ''; const d=new Date(dateStr+'T00:00'); const b=baseDT?new Date(baseDT):new Date(); b.setHours(0,0,0,0);
   const diff=Math.round((d-b)/86400000); return diff===0?'今日':diff===1?'明日':`${d.getMonth()+1}╱${d.getDate()}`;
 }
+// 正常／否定的描述預設不寫進紀錄（只寫異常）
+const isNormalObs = o => !['意識精神','呼吸'].includes(o.module) && /^(身上)?(無|沒有|未見|皆無|均無|皮膚完整)/.test(String(o.text||'').trim());
+const isNormalAct = t => /(可自行|自己|獨立|正常)/.test(t||'') && !/(臥床|協助|攙扶|尿壺|便盆|輪椅|喘|跌|無法)/.test(t||'');
 const joinCN = a => a.length<=1 ? (a[0]||'') : a.slice(0,-1).join('、')+'及'+a[a.length-1];
 function initRecordControls(){
   if(!TPL) return;
@@ -999,7 +1002,7 @@ function renderObs(){
   const mods = TPL['模組'], {said, asm} = mergedObs();
   let h = RCD.obs.map((o,i)=>`<div class="obs ${o.on?'':'off'}"><input type="checkbox" data-o="${i}" ${o.on?'checked':''}>
       <span class="srcTag nurse">口述</span><span class="srcTag">${esc(mods[o.module]?.名稱||o.module)}</span><input type="text" data-ot="${i}" value="${esc(o.text)}" title="依據：${esc(o.evidence||'')}">
-      ${o.flag?`<span class="note">⚠ ${esc(o.flag)}</span>`:''}</div>`).join('');
+      ${o.flag?`<span class="note">⚠ ${esc(o.flag)}</span>`:''}${o.normal?'<span class="sub">正常描述，預設不寫</span>':''}</div>`).join('');
   const allAsm = fromAssessment().filter(o=>!new Set(said.map(s=>s.module)).has(o.module));
   h += allAsm.map(o=>{ const k=o.module+'|'+o.text, off=(RCD.asmOff||{})[k]; return `<div class="obs ${off?'off':''}"><input type="checkbox" data-asm="${esc(k)}" ${off?'':'checked'}>
       <span class="srcTag HIS">評估帶入</span><span class="srcTag">${esc(mods[o.module]?.名稱||o.module)}</span><span>${esc(o.text)}</span></div>`; }).join('');
@@ -1014,7 +1017,8 @@ function iExtras(){
   return list.map(x=>({...x, on: x.t in RCD.ichk ? RCD.ichk[x.t] : x.def}));
 }
 function renderIList(){
-  $('rI').innerHTML = iExtras().map(x=>`<label class="opt"><input type="checkbox" data-it="${esc(x.t)}" ${x.on?'checked':''}>${esc(x.t)}<span class="srcTag">${x.kind}</span></label>`).join('');
+  const tch = (RCD.teach||[]).map((t,i)=>`<div class="obs ${t.on?'':'off'}"><input type="checkbox" data-tc="${i}" ${t.on?'checked':''}><span class="srcTag nurse">對話</span><input type="text" data-tt="${i}" value="${esc(t.text)}" title="依據：${esc(t.evidence||'')}">${t.flag?`<span class="note">⚠ ${esc(t.flag)}</span>`:''}</div>`).join('');
+  $('rI').innerHTML = tch + iExtras().map(x=>`<label class="opt"><input type="checkbox" data-it="${esc(x.t)}" ${x.on?'checked':''}>${esc(x.t)}<span class="srcTag">${x.kind}</span></label>`).join('');
 }
 function buildRecord(){
   if(!TPL) return '';
@@ -1035,7 +1039,7 @@ function buildRecord(){
   const tc = T['入院類型'][typ];
   if(tc && tc['O結尾']) O.push(tc['O結尾'].replace('{日期}', $('rDate').value?relDay($('rDate').value,$('rReport').value):TODO('日期')).replace('{名稱}', $('rName').value.trim()||TODO(tc['名稱欄位'])));
   else if($('rReason').checked){ const pi=(curVal('present_illness')||'').trim().replace(/[。.]$/,''); if(pi) O.push('此次'+pi.replace(/^此次/,'')); }
-  const I = [T['I固定處置'], ...iExtras().filter(x=>x.on).map(x=>x.t)];
+  const I = [T['I固定處置'], ...(RCD.teach||[]).filter(t=>t.on && t.text.trim()).map(t=>t.text.trim()), ...iExtras().filter(x=>x.on).map(x=>x.t)];
   const E = [];
   if($('rTeam').value) E.push($('rTeam').value);
   E.push(T['E衛教'].replace('{對象}', joinCN(['病人', ...withs])));
@@ -1044,7 +1048,7 @@ function buildRecord(){
   if(RCD.act && $('rAct').checked && !(bed && /^(臥床|臥床休息)$/.test(RCD.act.text.trim()))) E.push(RCD.act.text);   // 只寫「臥床」時由安全句涵蓋
   if(withs.length) E.push(T['E陪伴'].replace('{陪同}', joinCN(withs)));
   if($('rSafe').checked) E.push(isBedbound()?T['E安全_臥床']:T['E安全']);
-  return `${head}Ｏ：${O.join('，')}。Ｉ：${I.join('，')}。Ｅ：${E.join('，')}。`;
+  return `${head}Ｏ：${O.filter(Boolean).join('，')}。Ｉ：${I.join('，')}。Ｅ：${E.join('，')}。`;
 }
 function refreshRecord(force){
   if(!TPL) return;
@@ -1055,7 +1059,7 @@ function refreshRecord(force){
 }
 function countTodo(){ const n=($('rec1').value.match(/【待填：/g)||[]).length; $('rTodo').innerHTML = n?`<span class="note">尚有 ${n} 處【待填】</span>`:'<span style="color:var(--green)">✔ 無待填項目</span>'; }
 function initRecord(ex){
-  RCD = {obs:(ex.record_obs||[]).map(o=>({...o,on:true})), act:ex.record_activity||null, dropped:ex.record_dropped||[], edited:false, ichk:{}, asmOff:{}, fresh:true};   // 新的一次錄音：保存 AI 擷取的口述觀察，評估完成後再組紀錄
+  RCD = {obs:(ex.record_obs||[]).map(o=>({...o,on:!isNormalObs(o), normal:isNormalObs(o)})), teach:(ex.record_teach||[]).map(t=>({...t,on:true})), act:ex.record_activity||null, dropped:ex.record_dropped||[], edited:false, ichk:{}, asmOff:{}, fresh:true};   // 新的一次錄音：保存 AI 擷取的口述觀察，評估完成後再組紀錄
 }
 function setRecordDefaults(){
   $('rType').value = TPL['預設入院類型'] || Object.keys(TPL['入院類型'])[0];
@@ -1065,11 +1069,11 @@ function setRecordDefaults(){
   document.querySelectorAll('input[name="rWith"]').forEach(x=>{ x.checked = (x.value==='家屬' && cg.some(c=>!['外傭','褓姆','無'].includes(c))) || (x.value==='外傭' && cg.includes('外傭')); });
   $('rName').value=''; $('rDate').value=''; $('rReason').checked=false;
   $('rTeam').value=''; $('rSafe').checked=true;
-  $('rActWrap').style.display = RCD.act?'':'none'; if(RCD.act){ $('rAct').checked=true; $('rActTxt').textContent=RCD.act.text; }
+  $('rActWrap').style.display = RCD.act?'':'none'; if(RCD.act){ $('rAct').checked=!isNormalAct(RCD.act.text); $('rActTxt').textContent=RCD.act.text+(isNormalAct(RCD.act.text)?'（正常，預設不寫）':''); }
 }
 function openRecord(){
   if(!TPL){ toast('範本尚未載入'); return; }
-  if(!RCD || RCD.fresh===undefined){ RCD = {obs:[], act:null, dropped:[], edited:false, ichk:{}, asmOff:{}, fresh:true}; }
+  if(!RCD || RCD.fresh===undefined){ RCD = {obs:[], teach:[], act:null, dropped:[], edited:false, ichk:{}, asmOff:{}, fresh:true}; }
   if(RCD.fresh){ setRecordDefaults(); RCD.fresh=false; RCD.edited=false; }
   refreshRecord(); if(!S.rec1_ai) S.rec1_ai = $('rec1').value;
   S.record_open = Date.now(); show('mRecord');
@@ -1089,11 +1093,13 @@ document.addEventListener('change', e=>{
   if(t.dataset.o!==undefined) RCD.obs[+t.dataset.o].on=t.checked;
   if(t.dataset.asm!==undefined){ RCD.asmOff[t.dataset.asm]=!t.checked; }
   if(t.dataset.it!==undefined) RCD.ichk[t.dataset.it]=t.checked;
+  if(t.dataset.tc!==undefined) RCD.teach[+t.dataset.tc].on=t.checked;
   if(t.id!=='rec1') refreshRecord();
 });
 document.addEventListener('input', e=>{
   const t=e.target; if(!t.closest || !t.closest('.rec1')) return;
   if(t.dataset.ot!==undefined){ RCD.obs[+t.dataset.ot].text=t.value; if(!RCD.edited){ $('rec1').value=buildRecord(); countTodo(); } }
+  else if(t.dataset.tt!==undefined){ RCD.teach[+t.dataset.tt].text=t.value; if(!RCD.edited){ $('rec1').value=buildRecord(); countTodo(); } }
   else if(t.id==='rec1'){ RCD.edited=true; countTodo(); }
   else if(t.id==='rName' && !RCD.edited){ $('rec1').value=buildRecord(); countTodo(); }
 });
@@ -1137,7 +1143,7 @@ function openReview(){
   $('items').innerHTML = SCHEMA.filter(t=>byTab[t.tab]).map(t=>`<div class="grp"><div class="gt">${t.tab}</div>${byTab[t.tab].map(it=>{
     const f=FIELDS[it.id], lbl = f.parent?`${FIELDS[f.parent].label}－${f.label}`:f.label;
     return `<div class="it" data-id="${it.id}"><div class="ih"><span class="il">${esc(lbl)}${it.tier==='ext'?'<span class="srcTag ext">延伸</span>':''}${it.src?`<span class="srcTag ${it.src==='HIS'?'HIS':it.src==='護理師口述'?'nurse':''}">${esc(it.src)}</span>`:''}</span><span><span class="st">AI 建議</span> <button class="b small danger" data-del="${it.id}">刪除</button></span></div>
-      <div class="ctl">${itemValueHTML(it)}</div>${it.ev?(it.ev.startsWith('（非逐字稿原句）')?`<div class="note">⚠ 依據不是逐字稿原句：「${esc(it.ev.slice(8))}」</div>`:`<div class="ev">依據：「${esc(it.ev)}」</div>`):''}${it.note?`<div class="note">⚠ ${esc(it.note)}</div>`:''}</div>`;}).join('')}</div>`).join('') || '<div class="sub">AI 沒有擷取到可填入的欄位。</div>';
+      <div class="ctl">${itemValueHTML(it)}</div>${it.ev?(it.ev.startsWith('（非逐字稿原句）')?(['textarea','text'].includes(f.type)?'':`<div class="note">⚠ 依據不是逐字稿原句：「${esc(it.ev.slice(8))}」</div>`):`<div class="ev">依據：「${esc(it.ev)}」</div>`):''}${it.note?`<div class="note">⚠ ${esc(it.note)}</div>`:''}</div>`;}).join('')}</div>`).join('') || '<div class="sub">AI 沒有擷取到可填入的欄位。</div>';
   const missReq = AI_FIELDS.filter(f=>f.req && !f.parent && ex.values[f.id]===undefined);
   const dropFmt = v => Array.isArray(v) ? v.join('、') : String(v);
   const drops = Object.entries(ex.dropped||{}).filter(([k])=>FIELDS[k]).map(([k,v])=>`${FIELDS[k].label}（${esc(dropFmt(v))}）`);
@@ -1188,7 +1194,7 @@ $('revImport').onclick = ()=>{
   S.review_seconds = Math.round((Date.now()-S.review_open)/1000);
   S.items = ITEMS.map(it=>{ const f=FIELDS[it.id]; return {id:it.id, tab:f.tab, label:f.parent?`${FIELDS[f.parent].label}－${f.label}`:f.label, ai_value:it.ai, final_value:it.del?null:it.value, status:(it.del||it.value==null||it.value===''||(Array.isArray(it.value)&&!it.value.length))?'刪除':same(it.ai,it.value)?'採用':'修改', tier:it.tier, source:it.src||'', note:it.note||''}; });
   S.transcript_ai = RESULT.tr.text; S.transcript_final = tsText; S.pending = true;
-  S.record = {type:$('rType').value, with:getWith(), obs:RCD.obs.map(o=>({module:o.module,text:o.text,on:o.on,flag:o.flag||''})), from_assessment:mergedObs().asm.map(o=>o.text), dropped:RCD.dropped, activity:RCD.act, todo_left:($('rec1').value.match(/【待填：/g)||[]).length, edited:RCD.edited};
+  S.record = {type:$('rType').value, with:getWith(), teach:(RCD.teach||[]).map(t=>({text:t.text,on:t.on})), obs:RCD.obs.map(o=>({module:o.module,text:o.text,on:o.on,flag:o.flag||''})), from_assessment:mergedObs().asm.map(o=>o.text), dropped:RCD.dropped, activity:RCD.act, todo_left:($('rec1').value.match(/【待填：/g)||[]).length, edited:RCD.edited};
   if(!values.admit_place && $('rPlace').value) values.admit_place=$('rPlace').value;
   if(!values.admit_way && $('rWay').value) values.admit_way=$('rWay').value;
   hide('mRev');
