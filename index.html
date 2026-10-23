@@ -1099,6 +1099,19 @@ document.addEventListener('input', e=>{
 });
 document.addEventListener('click', e=>{ if(e.target.id==='regenRec'){ if(!RCD.edited || confirm('依目前設定重新產生，會覆蓋手動修改的內容？')){ RCD.edited=false; refreshRecord(true); } } });
 
+// ===== 單選可取消：再點一次已選的選項就取消 =====
+document.addEventListener('pointerdown', e=>{
+  const lb = e.target.closest && e.target.closest('label');
+  const r = (e.target.matches && e.target.matches('input[type=radio]')) ? e.target : (lb && lb.querySelector('input[type=radio]'));
+  if(r) r.dataset.was = r.checked ? '1' : '';
+}, true);
+document.addEventListener('click', e=>{
+  const r = e.target;
+  if(!(r.matches && r.matches('input[type=radio]')) || r.dataset.was!=='1') return;
+  r.dataset.was = ''; r.checked = false;
+  r.dispatchEvent(new Event('change', {bubbles:true}));
+});
+
 // ===== 確認畫面 =====
 let ITEMS = [], tsText = '', tsEdited = false;
 function renderTranscript(){
@@ -1144,9 +1157,10 @@ function noteFor(id, ex){
 function same(a,b){ return JSON.stringify(Array.isArray(a)?[...a].sort():a)===JSON.stringify(Array.isArray(b)?[...b].sort():b); }
 function refreshItem(it){
   const el = $('items').querySelector(`.it[data-id="${it.id}"]`);
-  const mod = !it.del && !same(it.ai,it.value);
-  el.className = 'it'+(it.del?' del':mod?' mod':'');
-  el.querySelector('.st').textContent = it.del?'已刪除':mod?'已修改':'AI 建議';
+  const empty = it.value==null || it.value==='' || (Array.isArray(it.value)&&!it.value.length);
+  const mod = !it.del && !empty && !same(it.ai,it.value);
+  el.className = 'it'+(it.del||empty?' del':mod?' mod':'');
+  el.querySelector('.st').textContent = it.del?'已刪除':empty?'已清空（視同刪除）':mod?'已修改':'AI 建議';
   el.querySelector('[data-del]').textContent = it.del?'復原':'刪除';
 }
 $('items').addEventListener('change', e=>{
@@ -1172,7 +1186,7 @@ $('revImport').onclick = ()=>{
     if(f.parent && FIELDS[f.parent].type==='checkbox' && f.when){ const p=values[f.parent]||[]; if(!p.includes(f.when)) values[f.parent]=[...p,f.when]; }
   });
   S.review_seconds = Math.round((Date.now()-S.review_open)/1000);
-  S.items = ITEMS.map(it=>{ const f=FIELDS[it.id]; return {id:it.id, tab:f.tab, label:f.parent?`${FIELDS[f.parent].label}－${f.label}`:f.label, ai_value:it.ai, final_value:it.del?null:it.value, status:it.del?'刪除':same(it.ai,it.value)?'採用':'修改', tier:it.tier, source:it.src||'', note:it.note||''}; });
+  S.items = ITEMS.map(it=>{ const f=FIELDS[it.id]; return {id:it.id, tab:f.tab, label:f.parent?`${FIELDS[f.parent].label}－${f.label}`:f.label, ai_value:it.ai, final_value:it.del?null:it.value, status:(it.del||it.value==null||it.value===''||(Array.isArray(it.value)&&!it.value.length))?'刪除':same(it.ai,it.value)?'採用':'修改', tier:it.tier, source:it.src||'', note:it.note||''}; });
   S.transcript_ai = RESULT.tr.text; S.transcript_final = tsText; S.pending = true;
   S.record = {type:$('rType').value, with:getWith(), obs:RCD.obs.map(o=>({module:o.module,text:o.text,on:o.on,flag:o.flag||''})), from_assessment:mergedObs().asm.map(o=>o.text), dropped:RCD.dropped, activity:RCD.act, todo_left:($('rec1').value.match(/【待填：/g)||[]).length, edited:RCD.edited};
   if(!values.admit_place && $('rPlace').value) values.admit_place=$('rPlace').value;
