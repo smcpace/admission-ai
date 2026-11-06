@@ -410,8 +410,8 @@ function rowHTML(f){
   if(f.type==='flag') return `<div class="row"><label class="opt"><input type="checkbox" name="${f.id}" ${values[f.id]?'checked':''}>${esc(f.label)}</label></div>`;
   if(f.type==='datetime') return `<div class="row">${star}<span class="lb">${esc(f.label)}:</span><input type="date" name="assess_date" value="${values.assess_date}"> <input type="time" name="assess_time" value="${values.assess_time}"></div>`;
   if(f.type==='group'){
-    const ai = f.items.some(x=>aiSet.has(x.id));
-    return `<div class="row ${ai?'ai':''}"><span class="lb">${esc(f.label)}:</span>${f.items.map(x=>`<span class="req">*</span>${x.label} ${ctl(x)} `).join('')}${ai?tag(f.items.find(x=>aiSet.has(x.id)).id):''}</div>`;
+    const ai = f.items.some(x=>aiSet.has(x.id)), auto = f.items.some(x=>autoSet.has(x.id));
+    return `<div class="row ${ai||auto?'ai':''}"><span class="lb">${esc(f.label)}:</span>${f.items.map(x=>`<span class="req">*</span>${x.label} ${ctl(x)} `).join('')}${ai?tag(f.items.find(x=>aiSet.has(x.id)).id):''}${auto?'<span class="tag">依意識帶入，請確認</span>':''}</div>`;
   }
   const ai = aiSet.has(f.id) || (f.sub && aiSet.has(f.sub.id));
   let sub = '';
@@ -435,12 +435,27 @@ function readControl(root, f, prefix=''){
   if(f.type==='number') return el.value===''?null:Number(el.value);
   return el.value||null;
 }
+// ===== GCS 依意識自動帶入（程式規則，不經 AI） =====
+const autoSet = new Set(), GCS_IDS = ['gcs_e','gcs_v','gcs_m'];
+function autoGCS(){
+  const airway = (values.air_special_items||[]).some(x=>['氣切','氣管插管'].includes(x)) && values.air_special==='有';
+  const target = {gcs_e:'4', gcs_v: airway?'T':'5', gcs_m:'6'};
+  if(values.consciousness==='清醒'){
+    const empty = GCS_IDS.every(id=>!values[id]), allAuto = GCS_IDS.every(id=>autoSet.has(id));
+    if(empty || allAuto) GCS_IDS.forEach(id=>{ values[id]=target[id]; autoSet.add(id); });
+  } else {
+    GCS_IDS.forEach(id=>{ if(autoSet.has(id)){ values[id]=null; autoSet.delete(id); } });
+  }
+}
 $('panel').addEventListener('change', e=>{
   const n = e.target.name; if(!n) return;
   if(n==='assess_date'||n==='assess_time'){ values[n]=e.target.value; return; }
   const f = FIELDS[n]; if(!f) return;
   values[n] = f.type==='flag' ? e.target.checked : readControl($('panel'), f);
-  if(f.sub || f.parent) renderPanel();
+  if(GCS_IDS.includes(n)) GCS_IDS.forEach(id=>autoSet.delete(id));   // 護理師動過任一 GCS 值，三個值都以護理師為準
+  const before = GCS_IDS.map(id=>values[id]).join();
+  autoGCS();
+  if(f.sub || f.parent || before!==GCS_IDS.map(id=>values[id]).join()) renderPanel();
 });
 $('panel').addEventListener('input', e=>{ const f=FIELDS[e.target.name]; if(f&&['text','textarea','number'].includes(f.type)) values[f.id]=readControl($('panel'),f); });
 $('btnSave').onclick = ()=>{
@@ -1199,6 +1214,7 @@ $('revImport').onclick = ()=>{
   if(!values.admit_way && $('rWay').value) values.admit_way=$('rWay').value;
   hide('mRev');
   const first = SCHEMA.findIndex(t=>t.fields.some(f=>aiSet.has(f.id)||(f.sub&&aiSet.has(f.sub.id))||(f.items||[]).some(x=>aiSet.has(x.id))));
+  autoGCS();
   if(first>=0) curTab=first; renderTabs(); renderPanel();
   toast(`已匯入 ${n} 個欄位（黃色底＝AI 填入）。請補完其他評估欄位，再按上方「📝 第一筆護理紀錄」產生紀錄。`,7000);
 };
@@ -1275,7 +1291,7 @@ const DEMO = {
   extract:{ seconds:1.6, model:'示範',
     values:{ marital:'已婚', edu:'中學', lang:['國語','台語'], job:'無',
       present_illness:'因呼吸喘已持續一週，活動後加劇，夜間無法平躺，伴隨咳嗽有黃痰及雙下肢凹陷性水腫；昨晚喘促加劇，由救護車送至急診就醫。',
-      past_history:'(年份不詳)高血壓，規則服藥。\n(年份不詳)糖尿病，規則服藥。\n(年份不詳)心衰竭，門診追蹤。',
+      past_history:'1.(年份不詳)高血壓，規則服藥。\n2.(年份不詳)糖尿病，規則服藥。\n3.(年份不詳)心衰竭，門診追蹤。',
       eat_way:'由口進食', eat_status:'食慾低', food_taboo:'醫囑限鹽（少吃鹹）',
       urine_way:'正常', stool_way:'正常', stool_type:['便秘'],
       sleep:'失眠', sleep_hours:4,
